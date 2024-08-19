@@ -1,14 +1,16 @@
 version: "3.8"
 
 services:
-  # backend:
-  #   build: ./backend
-  #   ports:
-  #     - "5000:5000"
-  #   volumes:
-  #     - ./backend:/app
-  #   environment:
-  #     - FLASK_ENV=development
+  backend:
+    build:
+      context: ./backend
+      dockerfile: backend_dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - FLASK_ENV=development
 
   frontend:
     build:
