@@ -10,7 +10,7 @@ services:
     volumes:
       - ./backend:/app
     environment:
-      - FLASK_ENV=development
+      - GOPRO_CONFIG_FILE: "./backend/config/gopro_config.json"
 
   frontend:
     build:
