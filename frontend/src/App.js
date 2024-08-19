@@ -7,7 +7,8 @@ function App() {
   const [status, setStatus] = useState('');
 
   useEffect(() => {
-    socket.on('status', (data) => {
+    socket.on('gopro_status', (data) => {
+      console.log(data);
       setStatus(data.status);
     });
 
