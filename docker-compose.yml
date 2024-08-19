@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  # backend:
+  #   build: ./backend
+  #   ports:
+  #     - "5000:5000"
+  #   volumes:
+  #     - ./backend:/app
+  #   environment:
+  #     - FLASK_ENV=development
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: frontend_dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    # environment:
+    #   - CHOKIDAR_USEPOLLING=true
