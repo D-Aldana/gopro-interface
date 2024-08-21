@@ -8,9 +8,12 @@ def load_gopro_config():
     if os.path.exists(config_file_path):
         with open(config_file_path, 'r') as f:
             config = json.load(f)
-            return config.get("gopros", [])
+            gopro_ips = config.get("gopros", [])
 
-    # Default to an empty list if the config file is not found
-    return []
+            # Extract the parameters for each GoPro
+            gopro_params = config.get("gopro_params", {})
 
-gopro_ips = load_gopro_config()
+    return gopro_ips, gopro_params
+
+gopro_ips, gopro_params = load_gopro_config()
+

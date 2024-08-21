@@ -1,10 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
+import videojs from 'video.js';
+import 'video.js/dist/video-js.css';
+import './App.css'; // Import your CSS file for custom styles
 
 const socket = io('http://localhost:5000');  // Adjust the URL if necessary
 
 function App() {
   const [goproStatuses, setGoproStatuses] = useState([]);
+  const [videoStreams, setVideoStreams] = useState({});
+  const videoRefs = useRef({});
+  const playerRefs = useRef({}); // Store initialized video.js player instances
 
   useEffect(() => {
     // Function to request the current status
@@ -26,10 +32,13 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Update state when new status data is received
     socket.on('gopro_status', (data) => {
-      console.log(data);
       setGoproStatuses(data);
+      const streams = {};
+      data.forEach((status) => {
+        streams[status.ip] = `http://localhost:5000/stream/${status.ip}/index.m3u8`; // HLS stream URL
+      });
+      setVideoStreams(streams);
     });
 
     // Cleanup on component unmount
@@ -37,6 +46,36 @@ function App() {
       socket.off('gopro_status');
     };
   }, []);
+
+  useEffect(() => {
+    // Initialize or update Video.js players
+    Object.entries(videoStreams).forEach(([ip, streamUrl]) => {
+      if (videoRefs.current[ip]) {
+        // Initialize the player if it hasn't been initialized
+        if (!playerRefs.current[ip]) {
+          playerRefs.current[ip] = videojs(videoRefs.current[ip], {
+            controls: true,
+            autoplay: false,
+            preload: 'auto',
+            sources: [{ src: streamUrl, type: 'application/x-mpegURL' }],
+          });
+        } else {
+          // Update the source if the player already exists
+          playerRefs.current[ip].src({ src: streamUrl, type: 'application/x-mpegURL' });
+        }
+      }
+    });
+
+    return () => {
+      // Dispose of Video.js players on unmount
+      Object.entries(playerRefs.current).forEach(([ip, player]) => {
+        if (player && typeof player.dispose === 'function') {
+          player.dispose();
+        }
+      });
+      playerRefs.current = {}; // Reset player references after disposal
+    };
+  }, [videoStreams]);
 
   const startGopros = () => {
     socket.emit('start_gopros');
@@ -60,6 +99,19 @@ function App() {
             </li>
           ))}
         </ul>
+      </div>
+      <div className="video-grid">
+        <h2>Video Feeds</h2>
+        {Object.entries(videoStreams).map(([ip, streamUrl]) => (
+          <div key={ip} className="video-item">
+            <h3>GoPro {ip}</h3>
+            <video
+              ref={(el) => (videoRefs.current[ip] = el)}
+              className="video-js vjs-default-skin"
+              controls
+            ></video>
+          </div>
+        ))}
       </div>
     </div>
   );
