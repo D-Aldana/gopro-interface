@@ -9,8 +9,10 @@ services:
       - "5000:5000"
     volumes:
       - ./backend:/app
+      - ./hls_streams:/app/hls_streams
     environment:
-      - GOPRO_CONFIG_FILE = "./backend/config/gopro_config.json"
+      - GOPRO_CONFIG_FILE = "./config/gopro_config.json"
+      - HLS_DIR = "./hls_streams"
 
   frontend:
     build:
