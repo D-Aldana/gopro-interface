@@ -10,7 +10,7 @@ services:
     volumes:
       - ./backend:/app
     environment:
-      - GOPRO_CONFIG_FILE: "./backend/config/gopro_config.json"
+      - GOPRO_CONFIG_FILE = "./backend/config/gopro_config.json"
 
   frontend:
     build:

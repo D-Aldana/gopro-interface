@@ -1,24 +1,37 @@
-/* App.css */
-
 .App {
-    text-align: center;
-  }
-  
-  .video-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 16px;
-    padding: 16px;
-  }
-  
-  .video-item {
-    border: 1px solid #ddd;
-    padding: 8px;
-    background-color: #f9f9f9;
-  }
-  
-  .video-js {
-    width: 100%;
-    height: auto;
-  }
-  
+  text-align: center;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); /* Increase min-width for wider video items */
+  gap: 16px;
+  padding: 16px;
+}
+
+.video-item {
+  display: flex;
+  flex-direction: column; /* Stack label and video vertically */
+  justify-content: center;
+  align-items: center;
+  height: 400px; /* Increase height to give more space for the video */
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden; /* Ensure no overflow of video outside the container */
+}
+
+.video-item h3 {
+  margin: 0;
+  padding: 8px;
+  background-color: #333;
+  color: #fff;
+  width: 100%; /* Ensure label spans full width */
+  text-align: center;
+}
+
+.video-js {
+  width: 100%;
+  height: 100%; /* Ensure the video takes up the full container height */
+  object-fit: cover; /* Maintain aspect ratio, and cover the container fully */
+}

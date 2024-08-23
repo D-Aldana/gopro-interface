@@ -2,87 +2,123 @@ import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import videojs from 'video.js';
 import 'video.js/dist/video-js.css';
-import './App.css'; // Import your CSS file for custom styles
+import './App.css';
 
-const socket = io('http://localhost:5000');  // Adjust the URL if necessary
+const socket = io('http://localhost:5000');
 
 function App() {
   const [goproStatuses, setGoproStatuses] = useState([]);
   const [videoStreams, setVideoStreams] = useState({});
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamReady, setStreamReady] = useState({});
+  const [checkedStreams, setCheckedStreams] = useState({});
+  const [activeStreams, setActiveStreams] = useState({}); // Track which streams are active
   const videoRefs = useRef({});
-  const playerRefs = useRef({}); // Store initialized video.js player instances
+  const playerRefs = useRef({});
 
   useEffect(() => {
-    // Function to request the current status
     const fetchStatus = () => {
       socket.emit('get_gopro_status');
     };
 
-    // Request the status when the component mounts
-    fetchStatus();
+    const intervalId = setInterval(fetchStatus, 2000); // Run every 2 seconds
 
-    // Set up periodic status check every 30 seconds (adjust interval as needed)
-    const intervalId = setInterval(fetchStatus, 30000);
-
-    // Clean up on component unmount
-    return () => {
-      socket.off('gopro_status');
-      clearInterval(intervalId);
-    };
+    return () => clearInterval(intervalId); // Clean up on component unmount
   }, []);
 
   useEffect(() => {
     socket.on('gopro_status', (data) => {
       setGoproStatuses(data);
-      const streams = {};
-      data.forEach((status) => {
-        streams[status.ip] = `http://localhost:5000/stream/${status.ip}/index.m3u8`; // HLS stream URL
-      });
-      setVideoStreams(streams);
-    });
+      if (isStreaming) {
+        const streams = {};
+        data.forEach((status) => {
+          var ip_convert = status.ip.replace(/\./g, '_');
+          const streamUrl = `http://localhost:5000/hls_streams/gopro_${ip_convert}.m3u8`;
+          streams[status.ip] = streamUrl;
 
-    // Cleanup on component unmount
-    return () => {
-      socket.off('gopro_status');
-    };
-  }, []);
+          // Initialize activeStreams with default values if not set
+          if (!(status.ip in activeStreams)) {
+            setActiveStreams(prev => ({ ...prev, [status.ip]: true }));
+          }
 
-  useEffect(() => {
-    // Initialize or update Video.js players
-    Object.entries(videoStreams).forEach(([ip, streamUrl]) => {
-      if (videoRefs.current[ip]) {
-        // Initialize the player if it hasn't been initialized
-        if (!playerRefs.current[ip]) {
-          playerRefs.current[ip] = videojs(videoRefs.current[ip], {
-            controls: true,
-            autoplay: false,
-            preload: 'auto',
-            sources: [{ src: streamUrl, type: 'application/x-mpegURL' }],
-          });
-        } else {
-          // Update the source if the player already exists
-          playerRefs.current[ip].src({ src: streamUrl, type: 'application/x-mpegURL' });
-        }
+          // Only check readiness if we haven't already confirmed the stream is ready
+          if (!checkedStreams[status.ip]) {
+            checkStreamReady(`gopro_${ip_convert}.m3u8`, status.ip);
+          }
+        });
+        setVideoStreams(streams);
       }
     });
 
     return () => {
-      // Dispose of Video.js players on unmount
-      Object.entries(playerRefs.current).forEach(([ip, player]) => {
-        if (player && typeof player.dispose === 'function') {
-          player.dispose();
+      socket.off('gopro_status');
+    };
+  }, [isStreaming, checkedStreams, activeStreams]);
+
+  const checkStreamReady = async (filename, ip) => {
+    try {
+      const response = await fetch(`http://localhost:5000/hls_streams/check_ready/${filename}`);
+      const result = await response.json();
+      setStreamReady(prev => ({ ...prev, [ip]: result.ready }));
+
+      // If stream is ready, mark it as checked and stop further checks
+      if (result.ready) {
+        setCheckedStreams(prev => ({ ...prev, [ip]: true }));
+        console.log("Stream is ready for GoPro", ip);
+      } 
+    } catch (error) {
+      console.error(`Error checking stream for ${ip}:`, error);
+      setStreamReady(prev => ({ ...prev, [ip]: false }));
+    }
+  };
+
+  useEffect(() => {
+    if (isStreaming) {
+      Object.entries(videoStreams).forEach(([ip, streamUrl]) => {
+        if (videoRefs.current[ip] && streamReady[ip] && activeStreams[ip] && !playerRefs.current[ip]) {
+          playerRefs.current[ip] = videojs(videoRefs.current[ip], {
+            controls: false,
+            autoplay: true,
+            muted: true,
+            liveui: true,
+            preload: 'auto',
+            sources: [{ src: streamUrl, type: 'application/x-mpegURL' }],
+          });
+
+          playerRefs.current[ip].on('error', () => {
+            console.error(`Error loading video for GoPro ${ip}`);
+          });
         }
       });
-      playerRefs.current = {}; // Reset player references after disposal
+    }
+
+    return () => {
+      if (!isStreaming) {
+        Object.entries(playerRefs.current).forEach(([ip, player]) => {
+          if (player && typeof player.dispose === 'function') {
+            player.dispose();
+          }
+        });
+        playerRefs.current = {};
+      }
     };
-  }, [videoStreams]);
+  }, [videoStreams, isStreaming, streamReady, activeStreams]);
 
   const startGopros = () => {
+    setIsStreaming(true);
     socket.emit('start_gopros');
   };
 
   const stopGopros = () => {
+    setIsStreaming(false);
+    setStreamReady({});        // Clear streamReady state
+    setCheckedStreams({});      // Clear checkedStreams state
+    setActiveStreams({});       // Turn off all streams
     socket.emit('stop_gopros');
+  };
+
+  const toggleStream = (ip) => {
+    setActiveStreams(prev => ({ ...prev, [ip]: !prev[ip] }));
   };
 
   return (
@@ -96,23 +132,36 @@ function App() {
           {goproStatuses.map((status, index) => (
             <li key={index}>
               <strong>{status.ip}</strong>: Status - {status.status.error ? 'Error' : 'OK'}, Details: {JSON.stringify(status.status)}
+              
             </li>
           ))}
         </ul>
       </div>
-      <div className="video-grid">
-        <h2>Video Feeds</h2>
-        {Object.entries(videoStreams).map(([ip, streamUrl]) => (
-          <div key={ip} className="video-item">
-            <h3>GoPro {ip}</h3>
-            <video
-              ref={(el) => (videoRefs.current[ip] = el)}
-              className="video-js vjs-default-skin"
-              controls
-            ></video>
-          </div>
-        ))}
-      </div>
+      {isStreaming && (
+        <div className="video-grid">
+          <h2>Video Feeds</h2>
+          {Object.entries(videoStreams).map(([ip, streamUrl]) => (
+            <div key={ip} className="video-item" style={{ display: activeStreams[ip] ? 'block' : 'none' }}>
+              <h3>GoPro {ip} 
+              {isStreaming && (
+                <button onClick={() => toggleStream(ip)}>
+                  {activeStreams[ip] ? 'Hide Stream' : 'Show Stream'}
+                </button>
+              )}
+              </h3>
+              {streamReady[ip] ? (
+                <video
+                  ref={(el) => (videoRefs.current[ip] = el)}
+                  className="video-js vjs-default-skin"
+                  controls
+                ></video>
+              ) : (
+                <p>Loading stream...</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
