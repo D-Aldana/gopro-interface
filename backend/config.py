@@ -19,4 +19,4 @@ def load_gopro_config():
     return gopro_ips, gopro_params
 
 gopro_ips, gopro_params = load_gopro_config()
-
+hls_dir = os.getenv("HLS_DIR", "./hls_streams")

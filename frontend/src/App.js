@@ -12,7 +12,8 @@ function App() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamReady, setStreamReady] = useState({});
   const [checkedStreams, setCheckedStreams] = useState({});
-  const [activeStreams, setActiveStreams] = useState({}); // Track which streams are active
+  const [activeStreams, setActiveStreams] = useState({});
+  const [selectedGopros, setSelectedGopros] = useState([]); // Track selected GoPros for start/stop
   const videoRefs = useRef({});
   const playerRefs = useRef({});
 
@@ -32,18 +33,20 @@ function App() {
       if (isStreaming) {
         const streams = {};
         data.forEach((status) => {
-          var ip_convert = status.ip.replace(/\./g, '_');
-          const streamUrl = `http://localhost:5000/hls_streams/gopro_${ip_convert}.m3u8`;
-          streams[status.ip] = streamUrl;
+          if (selectedGopros.includes(status.ip)) { // Only include selected GoPros
+            var ip_convert = status.ip.replace(/\./g, '_');
+            const streamUrl = `http://localhost:5000/hls_streams/gopro_${ip_convert}.m3u8`;
+            streams[status.ip] = streamUrl;
 
-          // Initialize activeStreams with default values if not set
-          if (!(status.ip in activeStreams)) {
-            setActiveStreams(prev => ({ ...prev, [status.ip]: true }));
-          }
+            // Initialize activeStreams with default values if not set
+            if (!(status.ip in activeStreams)) {
+              setActiveStreams((prev) => ({ ...prev, [status.ip]: true }));
+            }
 
-          // Only check readiness if we haven't already confirmed the stream is ready
-          if (!checkedStreams[status.ip]) {
-            checkStreamReady(`gopro_${ip_convert}.m3u8`, status.ip);
+            // Only check readiness if we haven't already confirmed the stream is ready
+            if (!checkedStreams[status.ip]) {
+              checkStreamReady(`gopro_${ip_convert}.m3u8`, status.ip);
+            }
           }
         });
         setVideoStreams(streams);
@@ -53,22 +56,22 @@ function App() {
     return () => {
       socket.off('gopro_status');
     };
-  }, [isStreaming, checkedStreams, activeStreams]);
+  }, [isStreaming, checkedStreams, activeStreams, selectedGopros]);
 
   const checkStreamReady = async (filename, ip) => {
     try {
       const response = await fetch(`http://localhost:5000/hls_streams/check_ready/${filename}`);
       const result = await response.json();
-      setStreamReady(prev => ({ ...prev, [ip]: result.ready }));
+      setStreamReady((prev) => ({ ...prev, [ip]: result.ready }));
 
       // If stream is ready, mark it as checked and stop further checks
       if (result.ready) {
-        setCheckedStreams(prev => ({ ...prev, [ip]: true }));
+        setCheckedStreams((prev) => ({ ...prev, [ip]: true }));
         console.log("Stream is ready for GoPro", ip);
-      } 
+      }
     } catch (error) {
       console.error(`Error checking stream for ${ip}:`, error);
-      setStreamReady(prev => ({ ...prev, [ip]: false }));
+      setStreamReady((prev) => ({ ...prev, [ip]: false }));
     }
   };
 
@@ -106,7 +109,7 @@ function App() {
 
   const startGopros = () => {
     setIsStreaming(true);
-    socket.emit('start_gopros');
+    socket.emit('start_gopros', selectedGopros); // Emit selected GoPros
   };
 
   const stopGopros = () => {
@@ -114,25 +117,34 @@ function App() {
     setStreamReady({});        // Clear streamReady state
     setCheckedStreams({});      // Clear checkedStreams state
     setActiveStreams({});       // Turn off all streams
-    socket.emit('stop_gopros');
+    socket.emit('stop_gopros', selectedGopros); // Emit selected GoPros
   };
 
-  const toggleStream = (ip) => {
-    setActiveStreams(prev => ({ ...prev, [ip]: !prev[ip] }));
+  const handleGoproSelection = (ip) => {
+    setSelectedGopros((prevSelected) =>
+      prevSelected.includes(ip)
+        ? prevSelected.filter((selectedIp) => selectedIp !== ip)
+        : [...prevSelected, ip]
+    );
   };
 
   return (
     <div className="App">
       <h1>GoPro Control Interface</h1>
-      <button onClick={startGopros}>Start GoPros</button>
-      <button onClick={stopGopros}>Stop GoPros</button>
+      <button onClick={startGopros}>Start Selected GoPros</button>
+      <button onClick={stopGopros}>Stop Selected GoPros</button>
       <div>
         <h2>Status:</h2>
         <ul>
           {goproStatuses.map((status, index) => (
             <li key={index}>
+              <input
+                type="checkbox"
+                checked={selectedGopros.includes(status.ip)}
+                onChange={() => handleGoproSelection(status.ip)}
+                disabled={isStreaming}
+              />
               <strong>{status.ip}</strong>: Status - {status.status.error ? 'Error' : 'OK'}, Details: {JSON.stringify(status.status)}
-              
             </li>
           ))}
         </ul>
@@ -140,26 +152,22 @@ function App() {
       {isStreaming && (
         <div className="video-grid">
           <h2>Video Feeds</h2>
-          {Object.entries(videoStreams).map(([ip, streamUrl]) => (
-            <div key={ip} className="video-item" style={{ display: activeStreams[ip] ? 'block' : 'none' }}>
-              <h3>GoPro {ip} 
-              {isStreaming && (
-                <button onClick={() => toggleStream(ip)}>
-                  {activeStreams[ip] ? 'Hide Stream' : 'Show Stream'}
-                </button>
-              )}
-              </h3>
-              {streamReady[ip] ? (
-                <video
-                  ref={(el) => (videoRefs.current[ip] = el)}
-                  className="video-js vjs-default-skin"
-                  controls
-                ></video>
-              ) : (
-                <p>Loading stream...</p>
-              )}
-            </div>
-          ))}
+          {Object.entries(videoStreams)
+            .filter(([ip]) => selectedGopros.includes(ip)) // Only show selected GoPros
+            .map(([ip, streamUrl]) => (
+              <div key={ip} className="video-item" style={{ display: activeStreams[ip] ? 'block' : 'none' }}>
+                <h3>GoPro {ip}</h3>
+                {streamReady[ip] ? (
+                  <video
+                    ref={(el) => (videoRefs.current[ip] = el)}
+                    className="video-js vjs-default-skin"
+                    controls
+                  ></video>
+                ) : (
+                  <p>Loading stream...</p>
+                )}
+              </div>
+            ))}
         </div>
       )}
     </div>
