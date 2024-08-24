@@ -11,12 +11,12 @@ def load_gopro_config():
             gopro_ips = config.get("gopros", [])
 
             # Extract the parameters for each GoPro
-            gopro_params = config.get("gopro_params", {})
+            gopro_params = config.get("gopro_settings", {})
     else:
         gopro_ips = []
         gopro_params = {}
         
     return gopro_ips, gopro_params
 
-gopro_ips, gopro_params = load_gopro_config()
+gopro_ips, gopro_settings = load_gopro_config()
 hls_dir = os.getenv("HLS_DIR", "./hls_streams")

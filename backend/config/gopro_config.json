@@ -4,10 +4,23 @@
       "172.26.129.51"
     ],
 
-    "gopro_params": {
-        "res": "7",
-        "fov": "0",
-        "port": "8554",
-        "protocol": "ts"
-    }
+    "gopro_settings": [
+        {
+            "display_name": "FPS",
+            "setting": "3",
+            "option": "8"
+        },
+
+        {
+            "display_name": "Video Resolution",
+            "setting": "2",
+            "option": "9"
+        },
+
+        {
+            "display_name": "Max Lens",
+            "setting": "162",
+            "option": "1"
+        }
+      ]
 }
