@@ -91,11 +91,22 @@ function App() {
     );
   };
 
+  const updateAllGoproSettings = () => {
+    const connectedGopros = goproStatuses
+      .filter(status => status.state === 'Connected')
+      .map(status => status.ip);
+    
+    socket.emit('update_all_gopro_settings', connectedGopros); // Emit event to update settings for all connected GoPros
+  };
+
   return (
     <div className="App">
       <h1>GoPro Control Interface</h1>
       <button onClick={startGopros} disabled={isRecording}>Start Selected GoPros</button>
       <button onClick={stopGopros} disabled={!isRecording}>Stop Selected GoPros</button>
+      <button onClick={updateAllGoproSettings} disabled={isRecording}>
+        Update All Settings
+      </button>
       <div className="status-grid">
         {goproStatuses.map((status, index) => (
           <div key={index} className="status-item">
