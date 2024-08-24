@@ -1,30 +1,46 @@
 import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
+import VideoPlayer from './VideoPlayer';
 import './App.css';
 
 const socket = io('http://localhost:5000');
 
 function App() {
   const [goproStatuses, setGoproStatuses] = useState([]);
-  const [selectedGopros, setSelectedGopros] = useState([]); // Track selected GoPros
+  const [selectedGopros, setSelectedGopros] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
-  const [goproSettings, setGoproSettings] = useState({}); // Object to store settings keyed by IP
+  const [goproSettings, setGoproSettings] = useState({});
+  const [webcamStream, setWebcamStream] = useState(null);
+
+  useEffect(() => {
+    // Access webcam stream
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        setWebcamStream(stream);
+      })
+      .catch(err => {
+        console.error('Error accessing webcam:', err);
+      });
+  }, []);
+
+  useEffect(() => {
+    console.log('Webcam Stream:', webcamStream); // Check if the stream is correctly set
+  }, [webcamStream]);
+
 
   useEffect(() => {
     if (!isRecording) {
-      // Fetch GoPro statuses every 2 seconds
       const fetchStatus = () => {
         socket.emit('get_gopro_status');
       };
 
-      const intervalId = setInterval(fetchStatus, 2000); // Run every 2 seconds
-      return () => clearInterval(intervalId); // Clean up on component unmount
+      const intervalId = setInterval(fetchStatus, 2000);
+      return () => clearInterval(intervalId);
     }
   }, [isRecording]);
 
   useEffect(() => {
     socket.on('gopro_status', (data) => {
-      // Update GoPro status with the server response
       const updatedStatuses = data.map((status) => {
         const state = (status.status === 200) ? 'Connected' : 'Disconnected';
         return { ip: status.ip, state };
@@ -39,7 +55,6 @@ function App() {
 
   useEffect(() => {
     socket.on('gopro_record_response', (responses) => {
-      // Process the start/stop responses and update the statuses
       const updatedStatuses = goproStatuses.map((status) => {
         const response = responses.find((resp) => resp.ip === status.ip);
         if (response) {
@@ -61,7 +76,6 @@ function App() {
 
   useEffect(() => {
     socket.on('gopro_settings', (data) => {
-      // Update GoPro settings with the server response
       setGoproSettings((prevSettings) => ({
         ...prevSettings,
         [data.ip]: data.settings
@@ -75,12 +89,12 @@ function App() {
 
   const startGopros = () => {
     setIsRecording(true);
-    socket.emit('start_gopros', selectedGopros); // Emit selected GoPros to start recording
+    socket.emit('start_gopros', selectedGopros);
   };
 
   const stopGopros = () => {
     setIsRecording(false);
-    socket.emit('stop_gopros', selectedGopros); // Emit selected GoPros to stop recording
+    socket.emit('stop_gopros', selectedGopros);
   };
 
   const handleGoproSelection = (ip) => {
@@ -96,12 +110,15 @@ function App() {
       .filter(status => status.state === 'Connected')
       .map(status => status.ip);
     
-    socket.emit('update_all_gopro_settings', connectedGopros); // Emit event to update settings for all connected GoPros
+    socket.emit('update_all_gopro_settings', connectedGopros);
   };
 
   return (
     <div className="App">
       <h1>GoPro Control Interface</h1>
+      <div style={{width:'500px'}}>
+        <VideoPlayer stream={webcamStream} />
+      </div>
       <button onClick={startGopros} disabled={isRecording}>Start Selected GoPros</button>
       <button onClick={stopGopros} disabled={!isRecording}>Stop Selected GoPros</button>
       <button onClick={updateAllGoproSettings} disabled={isRecording}>
@@ -129,6 +146,7 @@ function App() {
           </div>
         ))}
       </div>
+      
     </div>
   );
 }

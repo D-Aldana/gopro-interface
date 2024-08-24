@@ -2,23 +2,24 @@
 
 .status-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); /* Increase the min width of each grid item */
-  gap: 20px; /* Space between grid items */
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
+  gap: 20px; 
   padding: 20px;
 }
 
 .status-item {
   border: 1px solid #ccc;
-  padding: 20px; /* Increase padding for more space around text */
+  padding: 20px; 
   border-radius: 8px;
   background-color: #f9f9f9;
-  min-height: 150px; /* Ensure the boxes are tall enough to accommodate text */
+  min-height: 150px; 
   box-sizing: border-box;
 }
 
 input[type="checkbox"] {
   width: 20px;
   height: 20px;
-  transform: scale(1.5); /* This will make the checkbox 1.5 times larger */
-  margin-right: 10px; /* Add some space between the checkbox and the text */
+  transform: scale(1.5); 
+  margin-right: 10px; 
 }
+
