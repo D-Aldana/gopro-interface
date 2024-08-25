@@ -8,6 +8,10 @@ import os
 import requests
 from config import load_gopro_config, load_gopro_settings, hls_dir
 
+import sounddevice as sd
+import soundfile as sf
+import datetime
+
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
@@ -19,7 +23,9 @@ gopro_settings = load_gopro_settings()
 if not os.path.exists(HLS_DIR):
     os.makedirs(HLS_DIR)
 
-#################### FUNCTIONS ####################
+#################### GOPRO FUNCTIONS ####################
+
+##### GOPRO CONFIG #####
 def update_gopro_ips():
     global gopro_ips
     gopro_ips = load_gopro_config()
@@ -28,7 +34,7 @@ def update_gopro_settings():
     global gopro_settings
     gopro_settings = load_gopro_settings()
 
-##### GET GO PRO STATUS #####
+##### GOPRO STATUS #####
 def get_gopro_status():
     responses = []
     for ip in gopro_ips:
@@ -41,7 +47,7 @@ def get_gopro_status():
         responses.append({'ip': ip, 'status': status})
     return responses
 
-##### SET GO PRO SETTINGS #####
+##### GO PRO SETTINGS #####
 def set_gopro_settings(ip, setting):
     url = f"http://{ip}:8080/gopro/camera/setting"
     query_string = {"setting": setting['setting'], "option": setting['option']}
@@ -90,40 +96,7 @@ def start_gopro_record(ip):
     except Exception as e:
         print(f"Error starting webcam for {ip}: {e}", flush=True)
         return response.status_code
-
-##### STOP GO PRO STREAMS #####
-def stop_gopro(ip):
-    url = f'http://{ip}:8080/gopro/camera/shutter/stop'
-    try:
-        response = requests.get(url)
-        if response.status_code != 200:
-            raise Exception(f"Failed to stop GoPro webcam: {response.text}")
-        print(f"GoPro webcam {ip} stopped:", response.json(), flush=True)
-        return response.status_code
-    except Exception as e:
-        print(f"Error stopping webcam for {ip}: {e}", flush=True)
-        return response.status_code
-
-#################### SOCKET.IO EVENTS ####################
-@socketio.on('update_all_gopro_settings')
-def update_all_gopro_settings(selected_ips):
-    update_gopro_settings()
-    for ip in selected_ips:
-        for setting in gopro_settings:
-            set_gopro_settings(ip, setting)
-
-@socketio.on('get_gopro_status')
-def refresh_gopro_status():
-    emit('gopro_status', get_gopro_status())
     
-    for ip in gopro_ips:
-        curr_settings = get_gopro_settings(gopro_ips[0])
-        if curr_settings:
-            settings = [{'display_name': setting['display_name'], 
-                         'setting': setting['setting'], 
-                         'option': curr_settings.get(setting['setting'])} for setting in gopro_settings]
-            emit('gopro_settings', {'ip': ip, 'settings': settings})
-
 def start_gopro_thread(ip, responses):
     enable_usb(ip)
     for setting in gopro_settings:
@@ -145,6 +118,46 @@ def start_gopro_thread(ip, responses):
         response = start_gopro_record(ip)
     responses.append({'ip': ip, 'response': response})
 
+##### STOP GO PRO STREAMS #####
+def stop_gopro(ip):
+    url = f'http://{ip}:8080/gopro/camera/shutter/stop'
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            raise Exception(f"Failed to stop GoPro webcam: {response.text}")
+        print(f"GoPro webcam {ip} stopped:", response.json(), flush=True)
+        return response.status_code
+    except Exception as e:
+        print(f"Error stopping webcam for {ip}: {e}", flush=True)
+        return response.status_code
+    
+#################### AUDIO FUNCTIONS ####################
+##### Get Audio Devices #####
+def get_audio_devices():
+    devices = sd.query_devices()
+    audio_devices = [{'name': device['name'], 'index': device['index']} for device in devices if device['max_input_channels'] > 0]
+    return audio_devices
+
+#################### SOCKET.IO EVENTS ####################
+@socketio.on('update_all_gopro_settings')
+def update_all_gopro_settings(selected_ips):
+    update_gopro_settings()
+    for ip in selected_ips:
+        for setting in gopro_settings:
+            set_gopro_settings(ip, setting)
+
+@socketio.on('get_gopro_status')
+def refresh_gopro_status():
+    emit('gopro_status', get_gopro_status())
+    
+    for ip in gopro_ips:
+        curr_settings = get_gopro_settings(gopro_ips[0])
+        if curr_settings:
+            settings = [{'display_name': setting['display_name'], 
+                         'setting': setting['setting'], 
+                         'option': curr_settings.get(setting['setting'])} for setting in gopro_settings]
+            emit('gopro_settings', {'ip': ip, 'settings': settings})
+
 @socketio.on('start_gopros')
 def start_gopros(selected_ips):
     responses = []
@@ -153,7 +166,7 @@ def start_gopros(selected_ips):
         socketio.start_background_task(start_gopro_thread, ip, responses)
     
     # Emitting response after all threads complete
-    socketio.sleep(1)  # Allow some time for the threads to finish
+    socketio.sleep(1) 
     emit('gopro_record_response', responses)
 
 def stop_gopro_thread(ip, responses):
@@ -168,8 +181,13 @@ def stop_gopros(selected_ips):
         socketio.start_background_task(stop_gopro_thread, ip, responses)
     
     # Emitting response after all threads complete
-    socketio.sleep(1)  # Allow some time for the threads to finish
+    socketio.sleep(1)  
     emit('gopro_record_response', responses)
+
+@socketio.on('get_audio_devices')
+def get_audio_devices_event():
+    audio_devices = get_audio_devices()
+    emit('audio_devices', audio_devices)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)

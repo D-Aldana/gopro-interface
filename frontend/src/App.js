@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
-import VideoPlayer from './VideoPlayer';
+import VideoPlayer from './components/VideoPlayer';
 import './App.css';
 
 const socket = io('http://localhost:5000');
@@ -11,9 +11,12 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [goproSettings, setGoproSettings] = useState({});
   const [webcamStream, setWebcamStream] = useState(null);
+  const [soundDevices, setSoundDevices] = useState([]);
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [availableChannels, setAvailableChannels] = useState([]);
+  const [selectedChannels, setSelectedChannels] = useState([]);
 
   useEffect(() => {
-    // Access webcam stream
     navigator.mediaDevices.getUserMedia({ video: true })
       .then(stream => {
         setWebcamStream(stream);
@@ -24,16 +27,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    console.log('Webcam Stream:', webcamStream); // Check if the stream is correctly set
-  }, [webcamStream]);
-
-
-  useEffect(() => {
     if (!isRecording) {
       const fetchStatus = () => {
         socket.emit('get_gopro_status');
       };
-
       const intervalId = setInterval(fetchStatus, 2000);
       return () => clearInterval(intervalId);
     }
@@ -113,12 +110,91 @@ function App() {
     socket.emit('update_all_gopro_settings', connectedGopros);
   };
 
+  const fetchSoundDevices = () => {
+    socket.emit('get_audio_devices');
+  };
+
+  const handleDeviceSelection = (device) => {
+    setSelectedDevice(device);
+    if (!device) {
+      setAvailableChannels([]);
+      setSelectedChannels([]);
+      return;
+    }
+    setAvailableChannels([...Array(device.channels).keys()]);  // Simulate channels based on device
+    setSelectedChannels([]);
+  };
+
+  const handleChannelSelection = (channel) => {
+    setSelectedChannels(prev =>
+      prev.includes(channel)
+        ? prev.filter(ch => ch !== channel)
+        : [...prev, channel]
+    );
+  };
+
+  const startRecording = () => {
+    socket.emit('start_recording', { device: selectedDevice, channels: selectedChannels });
+  };
+
+  const stopRecording = () => {
+    socket.emit('stop_recording');
+  };
+
+  useEffect(() => {
+    socket.on('audio_devices', (devices) => {
+      setSoundDevices(devices);
+    });
+
+    fetchSoundDevices();
+
+    return () => {
+      socket.off('audio_devices');
+    };
+  }, []);
+
   return (
     <div className="App">
       <h1>GoPro Control Interface</h1>
-      <div style={{width:'500px'}}>
-        <VideoPlayer stream={webcamStream} />
+      <div style={{ display: 'flex' }}>
+        <div style={{ width: '500px' }}>
+          <VideoPlayer stream={webcamStream} />
+        </div>
+        <div style={{ width: '300px', marginLeft: '20px' }}>
+          <h3>Available Sound Devices</h3>
+          <button onClick={fetchSoundDevices}>Refresh Sound Devices</button>
+          <select onChange={(e) => handleDeviceSelection(soundDevices[e.target.value])}>
+            <option value="">Select a Device</option>
+            {soundDevices.map((device, index) => (
+              <option key={index} value={index}>{device.name}</option>
+            ))}
+          </select>
+
+          {availableChannels.length > 0 && (
+            <div>
+              <h4>Select Channels:</h4>
+              {availableChannels.map(channel => (
+                <div key={channel}>
+                  <input
+                    type="checkbox"
+                    checked={selectedChannels.includes(channel)}
+                    onChange={() => handleChannelSelection(channel)}
+                  />
+                  Channel {channel + 1}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button onClick={startRecording} disabled={!selectedDevice || selectedChannels.length === 0}>
+            Start Recording
+          </button>
+          <button onClick={stopRecording} disabled={!isRecording}>
+            Stop Recording
+          </button>
+        </div>
       </div>
+
       <button onClick={startGopros} disabled={isRecording}>Start Selected GoPros</button>
       <button onClick={stopGopros} disabled={!isRecording}>Stop Selected GoPros</button>
       <button onClick={updateAllGoproSettings} disabled={isRecording}>
@@ -146,7 +222,6 @@ function App() {
           </div>
         ))}
       </div>
-      
     </div>
   );
 }
