@@ -11,14 +11,20 @@ from config import load_gopro_config, load_gopro_settings, hls_dir
 import sounddevice as sd
 import soundfile as sf
 import datetime
+import pyaudio 
+import wave
 
 app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+pyAud = pyaudio.PyAudio()
 
+AUDIO_DIR = 'audio_recordings'
 HLS_DIR = hls_dir  # Directory to store HLS streams
 gopro_ips = load_gopro_config()
 gopro_settings = load_gopro_settings()
+audio_stream = None
+frames = []
 
 if not os.path.exists(HLS_DIR):
     os.makedirs(HLS_DIR)
@@ -39,12 +45,16 @@ def get_gopro_status():
     responses = []
     for ip in gopro_ips:
         url = f'http://{ip}:8080/gopro/webcam/status'
-        response = requests.get(url)
-        if response.json().get('status') in [0, 1]:
-            status = 200
-        else:
-            status = 400
-        responses.append({'ip': ip, 'status': status})
+        try:
+            response = requests.get(url, timeout=1) # Timeout after 1 second
+            if response.json().get('status') in [0, 1]:
+                status = 200
+            else:
+                status = 400
+            responses.append({'ip': ip, 'status': status})
+        except Exception as e:
+            responses.append({'ip': ip, 'status': 400})
+            print(f"Error getting status for {ip}: {e}", flush=True)
     return responses
 
 ##### GO PRO SETTINGS #####
@@ -134,9 +144,54 @@ def stop_gopro(ip):
 #################### AUDIO FUNCTIONS ####################
 ##### Get Audio Devices #####
 def get_audio_devices():
-    devices = sd.query_devices()
-    audio_devices = [{'name': device['name'], 'index': device['index']} for device in devices if device['max_input_channels'] > 0]
+    device_count = pyAud.get_device_count()
+    devices = [pyAud.get_device_info_by_index(i) for i in range(device_count)]
+    audio_devices = [{'name': device['name'], 'index': device['index']} for device in devices if device['maxInputChannels'] > 0]
     return audio_devices
+
+def start_audio_recording(device_index):
+    global audio_stream, frames
+    frames = []
+    
+    # Audio recording parameters ########### Consult about changes
+    format = pyaudio.paInt24
+    channels = 1  # Number of channels (mono)
+    rate = 44100  # Sampling rate in Hz
+    chunk = 1024  # Size of each audio chunk
+
+    # Start the audio stream
+    audio_stream = pyAud.open(format=format, channels=channels,
+                              rate=rate, input=True, input_device_index=device_index,
+                              frames_per_buffer=chunk)
+    
+    print(f'Audio recording started on device {device_index}')
+
+    # Record in the background
+    while audio_stream:
+        data = audio_stream.read(chunk)
+        frames.append(data)
+        socketio.sleep(0.01)  # Allow for asynchronous handling
+    print('Audio recording stopped')
+
+def stop_audio_recording():
+    global audio_stream, frames
+    if audio_stream is not None:
+        audio_stream.close()
+
+        audio_stream = None
+        
+        # Save the recorded frames as a WAV file
+        filename = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.wav'
+        filepath = os.path.join(AUDIO_DIR, filename)
+        
+        with wave.open(filepath, 'wb') as wf:
+            wf.setnchannels(1)  # Mono
+            wf.setsampwidth(pyAud.get_sample_size(pyaudio.paInt24))  # 16-bit resolution
+            wf.setframerate(44100)  # Sample rate
+            wf.writeframes(b''.join(frames))
+        
+        print(f'Audio file saved: {filepath}')
+        return filepath
 
 #################### SOCKET.IO EVENTS ####################
 @socketio.on('update_all_gopro_settings')
@@ -146,6 +201,7 @@ def update_all_gopro_settings(selected_ips):
         for setting in gopro_settings:
             set_gopro_settings(ip, setting)
 
+    
 @socketio.on('get_gopro_status')
 def refresh_gopro_status():
     emit('gopro_status', get_gopro_status())
@@ -188,6 +244,15 @@ def stop_gopros(selected_ips):
 def get_audio_devices_event():
     audio_devices = get_audio_devices()
     emit('audio_devices', audio_devices)
+
+@socketio.on('start_audio')
+def start_audio(device_index):
+    socketio.start_background_task(start_audio_recording, device_index)
+
+@socketio.on('stop_audio')
+def stop_audio():
+    filepath = stop_audio_recording()
+    emit('audio_saved', {'filepath': filepath})
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)

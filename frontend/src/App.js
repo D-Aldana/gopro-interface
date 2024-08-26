@@ -12,9 +12,11 @@ function App() {
   const [goproSettings, setGoproSettings] = useState({});
   const [webcamStream, setWebcamStream] = useState(null);
   const [soundDevices, setSoundDevices] = useState([]);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState(null);
-  const [availableChannels, setAvailableChannels] = useState([]);
-  const [selectedChannels, setSelectedChannels] = useState([]);
+  const [timer, setTimer] = useState('00:00:00');
+  const [audioFilePath, setAudioFilePath] = useState('');
+  const [finalTimer, setFinalTimer] = useState(''); // New state for final timer value
 
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: true })
@@ -31,6 +33,7 @@ function App() {
       const fetchStatus = () => {
         socket.emit('get_gopro_status');
       };
+
       const intervalId = setInterval(fetchStatus, 2000);
       return () => clearInterval(intervalId);
     }
@@ -38,10 +41,10 @@ function App() {
 
   useEffect(() => {
     socket.on('gopro_status', (data) => {
-      const updatedStatuses = data.map((status) => {
-        const state = (status.status === 200) ? 'Connected' : 'Disconnected';
-        return { ip: status.ip, state };
-      });
+      const updatedStatuses = data.map((status) => ({
+        ip: status.ip,
+        state: status.status === 200 ? 'Connected' : 'Disconnected',
+      }));
       setGoproStatuses(updatedStatuses);
     });
 
@@ -55,11 +58,7 @@ function App() {
       const updatedStatuses = goproStatuses.map((status) => {
         const response = responses.find((resp) => resp.ip === status.ip);
         if (response) {
-          if (response.response === 200) {
-            return { ...status, state: isRecording ? 'Recording' : 'Connected' };
-          } else {
-            return { ...status, state: 'Error' };
-          }
+          return { ...status, state: response.response === 200 ? (isRecording ? 'Recording' : 'Connected') : 'Error' };
         }
         return status;
       });
@@ -75,12 +74,48 @@ function App() {
     socket.on('gopro_settings', (data) => {
       setGoproSettings((prevSettings) => ({
         ...prevSettings,
-        [data.ip]: data.settings
+        [data.ip]: data.settings,
       }));
     });
 
     return () => {
       socket.off('gopro_settings');
+    };
+  }, []);
+
+  const startTimer = () => {
+    const startTime = new Date();
+    const intervalId = setInterval(() => {
+      const now = new Date();
+      const elapsed = now - startTime;
+      const minutes = String(Math.floor((elapsed % 3600000) / 60000)).padStart(2, '0');
+      const seconds = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0');
+      setTimer(`${minutes}:${seconds}`);
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  };
+
+  const startRecordingAudio = (deviceIndex) => {
+    socket.emit('start_audio', deviceIndex);
+    setIsRecordingAudio(true);
+    startTimer();
+  };
+
+  const stopRecordingAudio = () => {
+    socket.emit('stop_audio');
+    setIsRecordingAudio(false);
+    setFinalTimer(timer); // Capture the final timer value
+    setTimer('00:00:00');
+  };
+
+  useEffect(() => {
+    socket.on('audio_saved', (data) => {
+      setAudioFilePath(data.filepath); // Capture the saved file path
+    });
+
+    return () => {
+      socket.off('audio_saved');
     };
   }, []);
 
@@ -114,33 +149,6 @@ function App() {
     socket.emit('get_audio_devices');
   };
 
-  const handleDeviceSelection = (device) => {
-    setSelectedDevice(device);
-    if (!device) {
-      setAvailableChannels([]);
-      setSelectedChannels([]);
-      return;
-    }
-    setAvailableChannels([...Array(device.channels).keys()]);  // Simulate channels based on device
-    setSelectedChannels([]);
-  };
-
-  const handleChannelSelection = (channel) => {
-    setSelectedChannels(prev =>
-      prev.includes(channel)
-        ? prev.filter(ch => ch !== channel)
-        : [...prev, channel]
-    );
-  };
-
-  const startRecording = () => {
-    socket.emit('start_recording', { device: selectedDevice, channels: selectedChannels });
-  };
-
-  const stopRecording = () => {
-    socket.emit('stop_recording');
-  };
-
   useEffect(() => {
     socket.on('audio_devices', (devices) => {
       setSoundDevices(devices);
@@ -153,6 +161,11 @@ function App() {
     };
   }, []);
 
+  const handleDeviceChange = (deviceIndex) => {
+    const device = soundDevices.find(d => d.index === parseInt(deviceIndex, 10));
+    setSelectedDevice(device);
+  };
+
   return (
     <div className="App">
       <h1>GoPro Control Interface</h1>
@@ -161,42 +174,50 @@ function App() {
           <VideoPlayer stream={webcamStream} />
         </div>
         <div style={{ width: '300px', marginLeft: '20px' }}>
-          <h3>Available Sound Devices</h3>
+          <h3>Available Sound Devices</h3> 
           <button onClick={fetchSoundDevices}>Refresh Sound Devices</button>
-          <select onChange={(e) => handleDeviceSelection(soundDevices[e.target.value])}>
-            <option value="">Select a Device</option>
-            {soundDevices.map((device, index) => (
-              <option key={index} value={index}>{device.name}</option>
+          <select onChange={(e) => handleDeviceChange(e.target.value)} value={selectedDevice?.index || ''}>
+            <option value="" disabled>Select an audio device</option>
+            {soundDevices.map((device) => (
+              <option key={device.index} value={device.index}>
+                {device.name}
+              </option>
             ))}
           </select>
-
-          {availableChannels.length > 0 && (
+          
+          {selectedDevice && (
             <div>
-              <h4>Select Channels:</h4>
-              {availableChannels.map(channel => (
-                <div key={channel}>
-                  <input
-                    type="checkbox"
-                    checked={selectedChannels.includes(channel)}
-                    onChange={() => handleChannelSelection(channel)}
-                  />
-                  Channel {channel + 1}
+              {!isRecordingAudio ? (
+                <button onClick={() => startRecordingAudio(selectedDevice.index)}>
+                  Start Recording Audio: {selectedDevice.name}
+                </button>
+              ) : (
+                <div>
+                  <button style={{ backgroundColor: 'red', color: 'white' }}>
+                    Recording: {timer}
+                  </button>
+                  <button onClick={stopRecordingAudio}>Stop Recording</button>
                 </div>
-              ))}
+              )}
+              {finalTimer && (
+                <div>
+                  <p>Recording stopped at: {finalTimer}</p>
+                  {audioFilePath && <p>Audio saved to: {audioFilePath}</p>}
+                </div>
+              )}
             </div>
           )}
-
-          <button onClick={startRecording} disabled={!selectedDevice || selectedChannels.length === 0}>
-            Start Recording
-          </button>
-          <button onClick={stopRecording} disabled={!isRecording}>
-            Stop Recording
-          </button>
         </div>
       </div>
 
-      <button onClick={startGopros} disabled={isRecording}>Start Selected GoPros</button>
-      <button onClick={stopGopros} disabled={!isRecording}>Stop Selected GoPros</button>
+      {!isRecording ? (
+        <button onClick={startGopros} disabled={isRecording}>Start Selected GoPros</button>
+      ) : (
+        <div>
+          <button style={{ backgroundColor: 'red', color: 'white' }}>Recording</button>
+          <button onClick={stopGopros}>Stop Recording</button>
+        </div>
+      )}
       <button onClick={updateAllGoproSettings} disabled={isRecording}>
         Update All Settings
       </button>
