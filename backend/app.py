@@ -4,11 +4,10 @@ eventlet.monkey_patch()
 from flask import Flask
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
-import os
 
 # Import utility functions and configurations
 from config import load_gopro_config, load_gopro_settings
-from gopro_utils import update_gopro_ips, update_gopro_settings, get_gopro_settings, get_gopro_status, set_gopro_settings, enable_usb, start_gopro_record, stop_gopro
+from gopro_utils import get_gopro_settings, get_gopro_status, set_gopro_settings, enable_usb, start_gopro_record, stop_gopro
 from audio_utils import get_audio_devices, start_audio_recording, stop_audio_recording
 
 # Initialize the Flask application
